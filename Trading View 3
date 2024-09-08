@@ -1,0 +1,174 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+
+// Update
+//   - update screenshot
+//   - add alerts
+//   - fix deletion of triggered zone
+//   - update screenshot
+//   - add mid lines to imbalanced boxes
+//   - add color option for each box type
+
+// Update 6-5-2023
+//  - add timeframe selection
+
+// Update 4-3-2024
+//  - add daily and weekly open gap (not relevant for crypto as those are non closing markets)
+//  - add volume imbalance with its own TF
+
+//@version=5
+indicator(title='Imbalanced zone', overlay=true)
+
+tf = input.timeframe(defval = '', title = 'TimeFrame')
+
+penetrationRatio = input.float(defval=0.2, minval=0, maxval=1, step=0.1, title="Penetration Ratio")
+reduce = input.bool(defval=true, title="Reduce boxes")
+extendBoxes = input.bool(defval=true, title="Extend boxes")
+imbalancedDownColor = input.color(color.rgb(120,120,120,80), title="Box color", group="Imbalanced down")
+imbalancedDownMidLineColor = input.color(color.rgb(120,120,120), title="Mid line color", group="Imbalanced down")
+imbalancedUpColor = input.color(color.rgb(120,120,120,80), title="Box color", group="Imbalanced up")
+imbalancedUpMidLineColor = input.color(color.rgb(120,120,120), title="Mid line color", group="Imbalanced up")
+
+showDailyImbalance = input.bool(false, title = "Show daily imbalanced zone", group="Daily imbalance zone")
+dailyImbalanceColor = input.color(color.rgb(252, 227, 0, 90), title="Daily imbalanced zone", group="Daily imbalance zone")
+dailyImbalanceHistory = input.int(defval = 5, title="Daily imbalance zone history", group="Daily imbalance zone")
+
+showWeeklyImbalance = input.bool(false, title="Show weekly imbalanced zone", group="Weekly imbalance zone")
+weeklyImbalanceColor = input.color(color.rgb(120,0,0,90), title="Weekly imbalanced zone", group="Weekly imbalance zone")
+weeklyImbalanceHistory = input.int(defval = 4, title="Weekly imbalance zone history", group="Weekly imbalance zone")
+
+tfVi = input.timeframe(defval = '', title = 'Volume imbalance TimeFrame', group="Volume imbalance")
+showVolumeImbalance = input.bool(defval = true, title="Show volume imbalance", group="Volume imbalance")
+volumeImbalanceColor = input.color(defval = color.rgb(33, 149, 243, 85), group="Volume imbalance")
+
+var box[] imbalancedDownBoxes = array.new_box()
+var box[] imbalancedUpBoxes = array.new_box()
+var line[] imbalancedDownMidLines = array.new_line()
+var line[] imbalancedUpMidLines = array.new_line()
+
+var box[] volumeImbalances = array.new_box()
+
+var box[] dailyImbalanceZones = array.new_box()
+var box[] weeklyImbalanceZones = array.new_box()
+
+maxBarHistory = input.int(500, title="Max IPA age")
+
+extension = extend.none
+if extendBoxes
+    extension := extend.right
+
+findImbalance(h1, h3, l1, l3) =>
+    if h3 < l1 and l3 != l3[1]
+        array.push(imbalancedDownBoxes,box.new(left=bar_index - 2,bottom=h3,right=bar_index + 20,top=l1,bgcolor=imbalancedDownColor,border_color=imbalancedDownColor,extend=extension))
+        midPoint = (h3-l1)/2+l1
+        array.push(imbalancedDownMidLines, line.new(bar_index - 2, midPoint, bar_index+20, midPoint, style=line.style_dotted, extend=extension, color=imbalancedDownMidLineColor))
+
+    if l3 > h1 and h3 != h3[1]
+        array.push(imbalancedUpBoxes, box.new(left=bar_index - 2, top=l3, right=bar_index + 20, bottom=h1, bgcolor=imbalancedUpColor, border_color=imbalancedUpColor, extend=extension))
+        midPoint = (h1-l3)/2+l3
+        array.push(imbalancedUpMidLines, line.new(bar_index - 2, midPoint, bar_index+20, midPoint, style=line.style_dotted, extend=extension, color=imbalancedUpMidLineColor))
+
+[h1, h3, l1, l3] = request.security(syminfo.tickerid, tf, [high[1], high[3], low[1], low[3]],lookahead = barmerge.lookahead_on)
+findImbalance(h1, h3, l1, l3)
+
+if array.size(imbalancedUpBoxes) > 0
+    for i = array.size(imbalancedUpBoxes) - 1 to 0 by 1
+        imbalancedBox = array.get(imbalancedUpBoxes, i)
+        top = box.get_top(imbalancedBox)
+        bottom = box.get_bottom(imbalancedBox)
+        invalidationLimit = (top - bottom) * penetrationRatio
+        box.set_right(imbalancedBox, bar_index + 20)
+
+        midLine = array.get(imbalancedUpMidLines, i)
+        line.set_x2(midLine, bar_index + 20)
+
+        age = box.get_left(imbalancedBox)
+        if bar_index - age > maxBarHistory
+            box.delete(imbalancedBox)
+            array.remove(imbalancedUpBoxes, i)
+            line.delete(midLine)
+            array.remove(imbalancedUpMidLines, i)
+        else
+            if reduce and high > bottom
+                box.set_bottom(imbalancedBox, high)
+            if high >= bottom + invalidationLimit
+                box.delete(imbalancedBox)
+                array.remove(imbalancedUpBoxes, i)
+                line.delete(midLine)
+                array.remove(imbalancedUpMidLines, i)
+
+if array.size(imbalancedDownBoxes) > 0
+    for i = array.size(imbalancedDownBoxes) - 1 to 0 by 1
+        imbalancedBox = array.get(imbalancedDownBoxes, i)
+        top = box.get_top(imbalancedBox)
+        bottom = box.get_bottom(imbalancedBox)
+        invalidationLimit = (top - bottom) * penetrationRatio
+        box.set_right(imbalancedBox, bar_index + 20)
+
+        midLine = array.get(imbalancedDownMidLines, i)
+        line.set_x2(midLine, bar_index + 20)
+
+        age = box.get_left(imbalancedBox)
+        if bar_index - age > maxBarHistory
+            box.delete(imbalancedBox)
+            array.remove(imbalancedDownBoxes, i)
+            line.delete(midLine)
+            array.remove(imbalancedDownMidLines, i)
+        else
+            if reduce and low < top
+                box.set_top(imbalancedBox, low)
+            if low <= top - invalidationLimit
+                box.delete(imbalancedBox)
+                array.remove(imbalancedDownBoxes, i)
+                line.delete(midLine)
+                array.remove(imbalancedDownMidLines, i)
+
+// Daily imbalance zone
+[o, c, t, tc] = request.security(syminfo.tickerid, "1D", [open, close, time, time_close], lookahead = barmerge.lookahead_on)
+
+dl = math.min(close[1], open)
+dh = math.max(close[1], open)
+
+isNewBar(res) =>
+    bt = time(res)
+    not na(bt) and (na(bt[1]) or bt > bt[1])
+
+if dh != dl and showDailyImbalance and isNewBar("D") and timeframe.isintraday and dayofweek != dayofweek.sunday
+    dBox = box.new(t, dh, tc, dl, xloc = xloc.bar_time, bgcolor = dailyImbalanceColor, border_color = color.rgb(0,0,0,100))
+    dailyImbalanceZones.push(dBox)
+    if array.size(dailyImbalanceZones) > dailyImbalanceHistory
+        box.delete(array.shift(dailyImbalanceZones))
+
+// Weekly imbalance zone
+[wo, wc, wt, wtc] = request.security(syminfo.tickerid, "1W", [open, close, time, time_close], lookahead = barmerge.lookahead_on)
+wl = math.min(close[1], wo)
+wh = math.max(close[1], wo)
+
+if wl != wh and showWeeklyImbalance and isNewBar("W") and (timeframe.isintraday or timeframe.isdaily)
+    wBox = box.new(wt, wh, wtc, wl, xloc = xloc.bar_time, bgcolor = weeklyImbalanceColor, border_color = color.rgb(0,0,0,100))
+    weeklyImbalanceZones.push(wBox)
+    if array.size(weeklyImbalanceZones) > weeklyImbalanceHistory
+        box.delete(array.shift(weeklyImbalanceZones))
+
+[o1, c1, o2, c2, viTime] = request.security(syminfo.tickerid, tfVi, [open[1], close[1], open[2], close[2], time[2]],lookahead = barmerge.lookahead_on)
+if showVolumeImbalance
+    volumeGap = (o2 < c2) ? (c2 < o1 and c2 < c1) : (c2 > o1 and c2 > c1)
+    if not volumeGap
+        volumeGap := (math.min(o2, c2) > math.max(o1, c1)) ? true : false
+
+    if volumeGap
+        bottom = (math.min(o1, c1) > math.max(o2, c2)) ? math.max(o2, c2) : math.max(o1, c1)
+        top = (math.min(o1, c1) > math.max(o2, c2)) ? math.min(o1, c1) : math.min(o2, c2)
+        viBox = box.new(viTime, top, viTime + 20*60*2000, bottom, xloc = xloc.bar_time, bgcolor = volumeImbalanceColor, border_color=color.rgb(0,0,0,100))
+        //f_movebox(volumeGapBox, time[2], close[2], time + 20 * 60 * 1000, open[1], boxBorderColor, boxBackgroundColor)
+        volumeImbalances.push(viBox)
+    
+    if array.size(volumeImbalances) > 0
+        for i = array.size(volumeImbalances) - 1 to 0 by 1
+            viBox = array.get(volumeImbalances, i)
+            boxTop = box.get_top(viBox)
+            boxBottom = box.get_bottom(viBox)
+            if low <= math.min(boxTop, boxBottom) and high >= math.max(boxTop, boxBottom)
+                box.delete(viBox)
+                array.remove(volumeImbalances, i)
+            else
+                box.set_right(viBox, time + 20*60*2000)
