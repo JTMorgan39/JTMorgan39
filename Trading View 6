@@ -1,0 +1,47 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © melodicfish
+
+//@version=5
+indicator("Round Number Levels",overlay = true,max_labels_count = 101,max_lines_count = 101)
+incrementVal=input.float(defval=500, title="Unit Place Rounding Value", tooltip = "The Unit Place that a number will be rounded and distance between rounded levels. Example Value setting of 100 and a price of 225.00 would result in a line level value of 200.00; Where a price of 265.00 would result in a line level value of 300 with the same value setting of 100")
+lQty=input.int(defval=2,minval=1,maxval=50, title="Line Amount",tooltip = "Each Line Amount increase will add a line level above and below baseline level; Baseline = line nearest to price) ")
+offset=input.int(defval=50,minval=0, maxval=490,step=10, title="Line Price Horizontal Offset",inline = "a")
+textCol=input.color(defval = color.white,title="Price Label Text Color",tooltip = "Use Horizontal Offset to adjust the X position of the price labels. To hide price labels disable Labels on the style tab",inline = "a")
+belowColor=input.color(defval = color.blue,title="Line Color Below price",inline="b")
+aboveColor=input.color(defval = color.orange,title="Line Color Above price",inline="b")
+ext=input.string(defval = "To Right",options = ["To Right","Both"],title="Extend Line: ")
+float iv= incrementVal
+lQty:=lQty+1
+var lines=array.new_line(lQty*2)
+var labels=array.new_label(lQty*2)
+var line baseLine=na
+
+RoundValue(value) =>
+    math.round(value / iv) * iv
+
+baseVal=RoundValue(close)
+
+if barstate.isconfirmed and baseVal!= baseVal[1]   
+    for i = 0 to (lQty*2) - 1
+        line.delete(array.get(lines,i))
+        label.delete(array.get(labels,i))
+
+    lines:=array.new_line(lQty*2)
+    labels:=array.new_label(lQty*2)
+
+    for j = 0 to lQty - 1
+        newLine=line.new(bar_index,baseVal+(j*iv),bar_index+1,baseVal+(j*iv),extend=ext=="Both"?extend.both:extend.right,color=close>baseVal+(j*iv)?belowColor:aboveColor)
+        newLabel=label.new(bar_index+1+offset,baseVal+(j*iv),text=str.tostring(baseVal+(j*iv)),style= label.style_none,textcolor = textCol, textalign=text.align_right)
+        array.insert(lines,j,newLine)
+        array.insert(labels,j,newLabel)
+        
+    for k = 1 to lQty - 1
+        newLine=line.new(bar_index,baseVal-(k*iv),bar_index+1,baseVal-(k*iv),extend=ext=="Both"?extend.both:extend.right,color=belowColor)
+        newLabel=label.new(bar_index+1+offset,baseVal-(k*iv),text=str.tostring(baseVal-(k*iv)),style= label.style_none,textcolor = textCol, textalign=text.align_right)
+        array.insert(lines,k+lQty,newLine)
+        array.insert(labels,k+lQty,newLabel)
+
+else if barstate.isconfirmed and baseVal== baseVal[1] 
+    line.set_color(array.get(lines,0),color=close>baseVal?belowColor:aboveColor)
+    for l = 0 to (lQty*2)-1
+        label.set_x(array.get(labels,l),bar_index+1+offset)
